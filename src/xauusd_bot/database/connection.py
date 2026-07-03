@@ -61,6 +61,16 @@ def init_db(conn: sqlite3.Connection) -> None:
             finally:
                 conn.execute("PRAGMA foreign_keys = ON")
 
+    # Check if we need to migrate market_analyses to add lot_size column
+    ma_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='market_analyses'"
+    ).fetchone()
+    if ma_row is not None:
+        table_sql = ma_row["sql"]
+        if "lot_size" not in table_sql.lower():
+            logger.info("Migrating market_analyses table to add lot_size column")
+            conn.execute("ALTER TABLE market_analyses ADD COLUMN lot_size REAL NOT NULL DEFAULT 0.05")
+
     # Check if the trades table has a broken foreign key reference pointing to daily_opportunities_old
     trades_row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='trades'"

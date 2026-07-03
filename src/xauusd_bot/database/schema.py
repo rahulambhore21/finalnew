@@ -15,6 +15,7 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         reason TEXT NOT NULL,
         model TEXT NOT NULL,
         raw_response TEXT,
+        lot_size REAL NOT NULL DEFAULT 0.05,
         created_at TEXT NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
     """,

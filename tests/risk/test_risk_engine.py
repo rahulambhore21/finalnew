@@ -171,3 +171,41 @@ def test_buy_sell_direction_correctness() -> None:
             assert p.stop_loss < entry_price < p.take_profit
         else:
             assert p.take_profit < entry_price < p.stop_loss
+
+
+def test_preferred_lot_size_override() -> None:
+    spec = _spec()
+    symbol_specs = {1: spec, 2: spec, 3: spec, 4: spec}
+    engine = RiskEngine(_risk_params(risk_usd=50.0, reward_usd=150.0))
+
+    plans = engine.compute_trade_plans(_ACCOUNTS, symbol_specs, entry_price=1950.00, preferred_lot_size=0.08)
+    for p in plans:
+        assert p.lot_size == 0.08
+
+
+def test_too_wide_stop_loss_raises_when_ai_lot_below_lot_min() -> None:
+    """When the AI recommends a lot size below the configured lot_min (implying the
+    stop loss is too wide for safe sizing), compute_trade_plans must raise
+    RiskCalculationError so the trading engine skips the trade."""
+    spec = _spec()
+    symbol_specs = {1: spec, 2: spec, 3: spec, 4: spec}
+    engine = RiskEngine(_risk_params())  # lot_min=0.05
+
+    with pytest.raises(RiskCalculationError, match="stop loss is too wide"):
+        engine.compute_trade_plans(
+            _ACCOUNTS, symbol_specs, entry_price=1950.00, preferred_lot_size=0.03
+        )
+
+
+def test_ai_lot_exactly_at_lot_min_is_accepted() -> None:
+    """A lot size exactly at the configured lot_min boundary must be accepted."""
+    spec = _spec()
+    symbol_specs = {1: spec, 2: spec, 3: spec, 4: spec}
+    engine = RiskEngine(_risk_params())  # lot_min=0.05
+
+    plans = engine.compute_trade_plans(
+        _ACCOUNTS, symbol_specs, entry_price=1950.00, preferred_lot_size=0.05
+    )
+    assert len(plans) == 4
+    for p in plans:
+        assert p.lot_size == 0.05

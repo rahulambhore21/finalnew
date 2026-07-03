@@ -49,6 +49,8 @@ def main() -> None:
         timeout_seconds=settings.ai.timeout_seconds,
         max_retries=settings.ai.max_retries,
         temperature=settings.ai.temperature,
+        lot_min=settings.trading.lot_min,
+        lot_max=settings.trading.lot_max,
     )
     risk_engine = RiskEngine(
         RiskParameters(

@@ -109,7 +109,7 @@ def _tick(bid: float, ask: float, time: datetime) -> Tick:
     return Tick(bid=bid, ask=ask, time=time)
 
 
-def _analysis(support: float, resistance: float, candle_time: datetime) -> MarketAnalysis:
+def _analysis(support: float, resistance: float, candle_time: datetime, lot_size: float = 0.05) -> MarketAnalysis:
     return MarketAnalysis(
         support=support,
         resistance=resistance,
@@ -119,6 +119,7 @@ def _analysis(support: float, resistance: float, candle_time: datetime) -> Marke
         candle_time=candle_time,
         symbol="XAUUSD",
         model="gpt-4o-mini",
+        lot_size=lot_size,
     )
 
 
@@ -271,6 +272,30 @@ class TestPriceAtSupportExecutes:
         assert len(trades) == 4
         assert all(t["status"] == "OPEN" for t in trades)
         assert all(t["mt5_order_ticket"] is not None for t in trades)
+
+    def test_executes_uses_ai_recommended_lot_size(self, repos, db_conn) -> None:
+        candle_time = datetime(2026, 7, 1, 10, 0, tzinfo=timezone.utc)
+        repos.analysis.insert_analysis(_analysis(1900.0, 2000.0, candle_time, lot_size=0.08))
+
+        ai_analyzer = FakeAIAnalyzer([])
+        client = MagicMock(spec=Mt5AccountClient)
+        client.get_current_tick.return_value = _tick(1899.5, 1899.7, candle_time)
+        client.get_candles.return_value = _m5_candles(candle_time)
+
+        executor = MagicMock(spec=MultiAccountExecutor)
+        executor.get_symbol_specs.return_value = {i: _spec() for i in (1, 2, 3, 4)}
+        executor.execute_all.return_value = [
+            ExecutionResult(account_id=i, success=True, order_ticket=1000 + i, entry_price=1899.5)
+            for i in (1, 2, 3, 4)
+        ]
+
+        engine, executor, _, _ = _make_engine(
+            repos, ai_analyzer, executor=executor, market_data_client=client
+        )
+        engine.run_once()
+
+        sent_plans = executor.execute_all.call_args[0][0]
+        assert all(p.lot_size == 0.08 for p in sent_plans)
 
 
 class TestAlreadyHasOpportunityToday:

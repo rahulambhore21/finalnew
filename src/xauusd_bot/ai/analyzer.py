@@ -24,14 +24,6 @@ logger = get_logger(__name__)
 
 _RETRY_DELAY_SECONDS = 1.0
 
-_SYSTEM_PROMPT = (
-    "You are a market analysis engine for an automated XAUUSD (Gold) trading "
-    "system. Given recent M5 and M15 OHLCV candles, identify the single most "
-    "relevant Support level and Resistance level for the current price action. "
-    "Base your levels on recent swing highs/lows, price clusters, and rejection "
-    "points visible in the data. Respond only with the requested fields."
-)
-
 
 def _format_candles(candles: list[Candle]) -> str:
     """Serialize candles as compact CSV rows: time,open,high,low,close,volume.
@@ -69,12 +61,27 @@ class AIAnalyzer:
         timeout_seconds: int,
         max_retries: int,
         temperature: float = 0.2,
+        lot_min: float = 0.05,
+        lot_max: float = 0.10,
     ) -> None:
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._max_retries = max_retries
         self._temperature = temperature
         self._client = OpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
+        self._lot_min = lot_min
+        self._lot_max = lot_max
+
+    def _get_system_prompt(self) -> str:
+        return (
+            "You are a market analysis engine for an automated XAUUSD (Gold) trading "
+            "system. Given recent M5 and M15 OHLCV candles, identify the single most "
+            "relevant Support level and Resistance level for the current price action. "
+            "Base your levels on recent swing highs/lows, price clusters, and rejection "
+            f"points visible in the data. Recommend a lot size (lot_size) in the range "
+            f"[{self._lot_min}, {self._lot_max}] (inclusive) based on your analysis confidence "
+            "and trade setup strength. Respond only with the requested fields."
+        )
 
     def analyze(
         self,
@@ -102,6 +109,7 @@ class AIAnalyzer:
             candle_time=m5_candles[-1].time,
             symbol=symbol,
             model=self._model,
+            lot_size=parsed.lot_size,
         )
 
     def _request_with_retry(
@@ -135,7 +143,7 @@ class AIAnalyzer:
                     temperature=self._temperature,
                     timeout=self._timeout_seconds,
                     messages=[
-                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "system", "content": self._get_system_prompt()},
                         {
                             "role": "user",
                             "content": _build_user_message(symbol, m5_candles, m15_candles),

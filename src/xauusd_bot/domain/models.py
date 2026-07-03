@@ -44,6 +44,7 @@ class MarketAnalysis(BaseModel):
     candle_time: datetime
     symbol: str
     model: str
+    lot_size: float = 0.05
 
     @model_validator(mode="after")
     def resistance_above_support(self) -> MarketAnalysis:

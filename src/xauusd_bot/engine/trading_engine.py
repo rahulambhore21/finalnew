@@ -244,10 +244,11 @@ class TradingEngine:
             return None
 
         logger.info(
-            "AI analysis received: support=%s resistance=%s confidence=%s model=%s",
+            "AI analysis received: support=%s resistance=%s confidence=%s lot_size=%s model=%s",
             analysis.support,
             analysis.resistance,
             analysis.confidence,
+            analysis.lot_size,
             analysis.model,
         )
         self._latest_analysis_id = self._analysis_repo.insert_analysis(analysis)
@@ -295,10 +296,19 @@ class TradingEngine:
 
         try:
             plans = self._risk_engine.compute_trade_plans(
-                accounts, symbol_specs, entry_price=trigger_price
+                accounts,
+                symbol_specs,
+                entry_price=trigger_price,
+                preferred_lot_size=analysis.lot_size,
             )
-        except RiskCalculationError:
-            logger.exception("Risk plan calculation failed; aborting this opportunity")
+        except RiskCalculationError as exc:
+            logger.warning(
+                "Trade skipped (risk guard): trigger_level=%s trigger_price=%s lot_size=%s — %s",
+                trigger_level,
+                trigger_price,
+                analysis.lot_size,
+                exc,
+            )
             return
 
         if self._latest_analysis_id is None:

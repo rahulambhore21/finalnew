@@ -99,6 +99,12 @@ def _determine_shared_lot_size(
     coarsest_step = max(steps)
     lot = _floor_to_step(preferred, coarsest_step)
 
+    if lot < lot_min:
+        raise RiskCalculationError(
+            f"Preferred/AI recommended lot size {preferred} (rounded to {lot}) is below "
+            f"the configured minimum lot size {lot_min}. The stop loss is too wide."
+        )
+
     lower_bound = max(lot_min, max(vol_mins))
     upper_bound = min(lot_max, min(vol_maxs))
     lot = max(lower_bound, min(upper_bound, lot))
@@ -285,10 +291,12 @@ class RiskEngine:
         accounts: tuple[AccountCredentials, ...],
         symbol_specs: dict[int, SymbolSpec],
         entry_price: float,
+        preferred_lot_size: float | None = None,
     ) -> list[TradePlan]:
         """Compute one TradePlan per account, all sharing the same lot size.
 
-        Starts from ``risk_params.preferred_lot_size`` and adjusts it to be
+        Starts from ``preferred_lot_size`` (or ``risk_params.preferred_lot_size``
+        if not provided) and adjusts it to be
         valid for every account in ``accounts`` (rounding down to the
         coarsest volume_step among them, then clamping into each account's
         volume_min/volume_max and the configured lot_min/lot_max). Then, for
@@ -307,6 +315,16 @@ class RiskEngine:
                 contract_size/tick_size (see
                 ``MAX_TICK_VALUE_DEVIATION_RATIO``).
         """
+        risk_params = self._risk_params
+        if preferred_lot_size is not None:
+            risk_params = RiskParameters(
+                risk_usd=self._risk_params.risk_usd,
+                reward_usd=self._risk_params.reward_usd,
+                lot_min=self._risk_params.lot_min,
+                lot_max=self._risk_params.lot_max,
+                preferred_lot_size=preferred_lot_size,
+            )
+
         specs: list[SymbolSpec] = []
         for account in accounts:
             spec = symbol_specs.get(account.account_id)
@@ -316,14 +334,14 @@ class RiskEngine:
                 )
             specs.append(spec)
 
-        lot_size = _determine_shared_lot_size(self._risk_params, tuple(specs))
+        lot_size = _determine_shared_lot_size(risk_params, tuple(specs))
         entry_price_decimal = _to_decimal(entry_price)
         lot_size_float = float(lot_size)
 
         plans: list[TradePlan] = []
         for account, spec in zip(accounts, specs):
             stop_loss, take_profit = _compute_account_prices(
-                account.account_id, lot_size, spec, entry_price_decimal, account.side, self._risk_params
+                account.account_id, lot_size, spec, entry_price_decimal, account.side, risk_params
             )
             plans.append(
                 TradePlan(

@@ -70,8 +70,8 @@ class AnalysisRepository:
             """
             INSERT INTO market_analyses
                 (requested_at, candle_time, symbol, support, resistance,
-                 confidence, reason, model, raw_response)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 confidence, reason, model, raw_response, lot_size)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 analysis.analyzed_at.isoformat(),
@@ -83,6 +83,7 @@ class AnalysisRepository:
                 analysis.reason,
                 analysis.model,
                 raw_response,
+                analysis.lot_size,
             ),
         )
         self._conn.commit()
@@ -104,6 +105,7 @@ class AnalysisRepository:
             candle_time=datetime.fromisoformat(row["candle_time"]),
             symbol=row["symbol"],
             model=row["model"],
+            lot_size=row["lot_size"] if "lot_size" in row.keys() else 0.05,
         )
 
     def get_latest_analysis_id(self) -> int | None:

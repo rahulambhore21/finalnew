@@ -62,7 +62,7 @@ class TestSuccessfulCall:
     def test_returns_correct_market_analysis(self, openai_client_cls) -> None:
         m5 = _candles(5)
         m15 = _candles(3)
-        response = AIResponseSchema(support=1900.0, resistance=1950.0, confidence=0.7, reason="x")
+        response = AIResponseSchema(support=1900.0, resistance=1950.0, confidence=0.7, reason="x", lot_size=0.08)
         client = openai_client_cls.return_value
         client.chat.completions.parse.return_value = _completion(parsed=response)
 
@@ -76,6 +76,7 @@ class TestSuccessfulCall:
         assert analysis.symbol == "XAUUSD"
         assert analysis.model == "gpt-4o-mini"
         assert analysis.candle_time == m5[-1].time
+        assert analysis.lot_size == 0.08
         client.chat.completions.parse.assert_called_once()
 
 
@@ -153,6 +154,18 @@ class TestPromptContent:
         assert f"{len(m15)} bars" in user_message
         # header row + 7 data rows for M5, header row + 4 data rows for M15
         assert user_message.count("time,open,high,low,close,volume") == 2
+
+    def test_system_prompt_contains_dynamic_lot_range(self, openai_client_cls) -> None:
+        response = AIResponseSchema(support=1900.0, resistance=1950.0, confidence=0.7, reason="x", lot_size=0.08)
+        client = openai_client_cls.return_value
+        client.chat.completions.parse.return_value = _completion(parsed=response)
+
+        analyzer = _analyzer(openai_client_cls, lot_min=0.06, lot_max=0.09)
+        analyzer.analyze("XAUUSD", _candles(3), _candles(3))
+
+        call_kwargs = client.chat.completions.parse.call_args.kwargs
+        system_message = call_kwargs["messages"][0]["content"]
+        assert "[0.06, 0.09]" in system_message
 
 
 class TestConfigWiring:
