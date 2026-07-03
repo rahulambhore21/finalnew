@@ -15,6 +15,14 @@ from xauusd_bot.mt5_adapter.client import Mt5AccountClient
 from xauusd_bot.mt5_adapter.errors import Mt5ConnectionError, Mt5OrderError
 
 
+@pytest.fixture(autouse=True)
+def reset_active_connection():
+    """Reset the class-level active connection tracking to ensure test isolation."""
+    Mt5AccountClient._active_account_id = None
+    yield
+    Mt5AccountClient._active_account_id = None
+
+
 def _credentials(**overrides: object) -> AccountCredentials:
     base: dict[str, object] = dict(
         account_id=1,

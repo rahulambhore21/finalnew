@@ -21,7 +21,7 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TABLE IF NOT EXISTS daily_opportunities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        trading_date TEXT NOT NULL UNIQUE,
+        trading_date TEXT NOT NULL,
         triggered_at TEXT NOT NULL,
         trigger_level TEXT NOT NULL CHECK (trigger_level IN ('SUPPORT', 'RESISTANCE')),
         trigger_price REAL NOT NULL,

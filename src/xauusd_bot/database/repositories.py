@@ -21,13 +21,13 @@ class OpportunityRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def has_opportunity_today(self, trading_date: date) -> bool:
-        """Return True if an opportunity has already been recorded for this date."""
+    def has_opportunity_today(self, trading_date: date, limit: int = 1) -> bool:
+        """Return True if the number of opportunities recorded for this date is >= limit."""
         row = self._conn.execute(
-            "SELECT 1 FROM daily_opportunities WHERE trading_date = ?",
+            "SELECT COUNT(*) FROM daily_opportunities WHERE trading_date = ?",
             (trading_date.isoformat(),),
         ).fetchone()
-        return row is not None
+        return row[0] >= limit
 
     def record_opportunity(
         self,

@@ -390,6 +390,45 @@ class TestOpenTradeMonitoring:
         assert row["status"] == "OPEN"
 
 
+class TestMaxOpportunitiesPerDay:
+    def test_allows_multiple_opportunities_when_configured(self, repos, db_conn) -> None:
+        candle_time = datetime(2026, 7, 1, 10, 0, tzinfo=timezone.utc)
+        analysis_id = repos.analysis.insert_analysis(_analysis(1900.0, 2000.0, candle_time))
+
+        # Record one opportunity today
+        repos.opportunity.record_opportunity(
+            trading_date=candle_time.date(),
+            triggered_at=candle_time,
+            trigger_level=TriggerLevel.SUPPORT,
+            trigger_price=1899.5,
+            analysis_id=analysis_id,
+        )
+
+        ai_analyzer = FakeAIAnalyzer([])
+        client = MagicMock(spec=Mt5AccountClient)
+        # Touch support again
+        client.get_current_tick.return_value = _tick(1899.5, 1899.7, candle_time)
+        client.get_candles.return_value = _m5_candles(candle_time)
+
+        executor = MagicMock(spec=MultiAccountExecutor)
+        executor.get_symbol_specs.return_value = {i: _spec() for i in (1, 2, 3, 4)}
+        executor.execute_all.return_value = [
+            ExecutionResult(account_id=i, success=True, order_ticket=2000 + i, entry_price=1899.5)
+            for i in (1, 2, 3, 4)
+        ]
+
+        engine, executor, _, settings = _make_engine(
+            repos, ai_analyzer, executor=executor, market_data_client=client
+        )
+        # Configure max_opportunities_per_day to 2
+        settings.trading.max_opportunities_per_day = 2
+
+        # This should execute another opportunity because the limit is 2
+        engine.run_once()
+
+        assert repos.opportunity.has_opportunity_today(candle_time.date(), limit=2) is True
+
+
 class TestRunForever:
     def test_continues_after_exception(self, repos, monkeypatch) -> None:
         ai_analyzer = FakeAIAnalyzer([])

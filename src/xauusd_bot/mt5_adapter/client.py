@@ -70,6 +70,9 @@ class Mt5AccountClient:
         """This client's account_id, used by MultiAccountExecutor to match plans to clients."""
         return self._credentials.account_id
 
+    # Class-level tracking of the currently initialized account connection in MT5
+    _active_account_id: int | None = None
+
     def connect(self) -> None:
         """Initialize (or re-attach to) this account's MT5 terminal and verify identity.
 
@@ -85,6 +88,37 @@ class Mt5AccountClient:
                 credentials.login.
         """
         credentials = self._credentials
+
+        # If another account is active, shut it down first
+        if (
+            Mt5AccountClient._active_account_id is not None
+            and Mt5AccountClient._active_account_id != credentials.account_id
+        ):
+            logger.info(
+                "Switching MT5 terminal connection from account_id=%s to account_id=%s",
+                Mt5AccountClient._active_account_id,
+                credentials.account_id,
+            )
+            mt5.shutdown()
+            Mt5AccountClient._active_account_id = None
+
+        # If this account is already active, verify the connection is still alive
+        if Mt5AccountClient._active_account_id == credentials.account_id:
+            account_info = mt5.account_info()
+            if account_info is not None and account_info.login == credentials.login:
+                logger.debug(
+                    "Reusing active MT5 terminal connection for account_id=%s",
+                    credentials.account_id,
+                )
+                return
+            # If account_info is None or login does not match, connection is dead/out of sync
+            logger.warning(
+                "MT5 connection for account_id=%s is dead or out of sync; reconnecting",
+                credentials.account_id,
+            )
+            mt5.shutdown()
+            Mt5AccountClient._active_account_id = None
+
         initialized = mt5.initialize(
             path=credentials.terminal_path,
             login=credentials.login,
@@ -113,6 +147,7 @@ class Mt5AccountClient:
                 f"login {credentials.login} for account_id={credentials.account_id}"
             )
 
+        Mt5AccountClient._active_account_id = credentials.account_id
         logger.info(
             "Connected to MT5 terminal for account_id=%s (login=%s, server=%s)",
             credentials.account_id,
@@ -121,9 +156,20 @@ class Mt5AccountClient:
         )
 
     def disconnect(self) -> None:
-        """Shut down this process's MT5 terminal connection."""
+        """Shut down this process's MT5 terminal connection.
+
+        In the persistent connection caching model, disconnect() does nothing
+        to keep the connection alive across cycles. Use force_disconnect()
+        if you explicitly want to shut down.
+        """
+        pass
+
+    def force_disconnect(self) -> None:
+        """Forcefully shut down the connection and clear the active account tracking."""
         mt5.shutdown()
-        logger.info("Disconnected MT5 terminal for account_id=%s", self._credentials.account_id)
+        if Mt5AccountClient._active_account_id == self._credentials.account_id:
+            Mt5AccountClient._active_account_id = None
+        logger.info("Forcefully disconnected MT5 terminal for account_id=%s", self._credentials.account_id)
 
     def get_symbol_spec(self, symbol: str) -> SymbolSpec:
         """Fetch and validate this account's MT5 symbol specification for ``symbol``.
@@ -154,12 +200,22 @@ class Mt5AccountClient:
                     f"(account_id={self._credentials.account_id})"
                 )
 
+        tick_value = info.trade_tick_value
+        # For symbols whose profit currency is USD (such as XAUUSD), the tick value
+        # in USD is contract_size * tick_size. Since our config targets (risk_usd,
+        # reward_usd) are in USD, we must calculate SL/TP price distances in USD
+        # by passing the USD-denominated tick value to the RiskEngine. This resolves
+        # unit errors when the account deposit currency is not USD (e.g. GBP) and
+        # protects against incorrect or stale trade_tick_value responses from the broker.
+        if getattr(info, "currency_profit", None) == "USD":
+            tick_value = info.trade_contract_size * info.trade_tick_size
+
         return SymbolSpec(
             symbol=symbol,
             digits=info.digits,
             point=info.point,
             tick_size=info.trade_tick_size,
-            tick_value=info.trade_tick_value,
+            tick_value=tick_value,
             contract_size=info.trade_contract_size,
             volume_min=info.volume_min,
             volume_max=info.volume_max,
@@ -320,11 +376,36 @@ class Mt5AccountClient:
 
         closing_deal = max(exit_deals, key=lambda deal: deal.time)
         close_price = float(closing_deal.price)
-        profit_usd = float(closing_deal.profit)
+        profit_ac = float(closing_deal.profit)
         closed_at = datetime.fromtimestamp(closing_deal.time, tz=timezone.utc)
 
         info = mt5.symbol_info(symbol)
         point = info.point if info is not None else 0.01
+
+        profit_usd = profit_ac
+        if info is not None and getattr(info, "currency_profit", None) == "USD":
+            # For USD profit currency, if the account currency is not USD, we convert
+            # the profit from account currency to USD using a 1-tick order profit query.
+            # A 1-tick move of 1 lot on XAUUSD is exactly 1.0 USD of profit.
+            calc_profit = mt5.order_calc_profit(
+                mt5.ORDER_TYPE_BUY,
+                symbol,
+                1.0,
+                close_price,
+                close_price + point
+            )
+            # Only perform conversion if calc_profit is a valid float/int and not a MagicMock (for unit tests)
+            if isinstance(calc_profit, (int, float)) and calc_profit > 0:
+                conv_factor = 1.0 / calc_profit
+                profit_usd = profit_ac * conv_factor
+                logger.info(
+                    "Converted closed deal profit from account currency (%s) to USD: "
+                    "%s -> %s (conv_factor=%s)",
+                    getattr(info, "currency_profit", "USD"),
+                    profit_ac,
+                    profit_usd,
+                    conv_factor
+                )
         tolerance = point * _CLOSE_PRICE_TOLERANCE_POINTS
 
         if abs(close_price - take_profit) <= tolerance:

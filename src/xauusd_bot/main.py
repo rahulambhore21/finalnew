@@ -85,7 +85,12 @@ def main() -> None:
         "(poll_interval_seconds=%s)",
         settings.trading.poll_interval_seconds,
     )
-    engine.run_forever()
+    try:
+        engine.run_forever()
+    finally:
+        logger.info("Trading engine stopping; shutting down MT5 connections")
+        import MetaTrader5 as mt5
+        mt5.shutdown()
 
 
 if __name__ == "__main__":

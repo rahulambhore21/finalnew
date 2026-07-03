@@ -56,6 +56,7 @@ class TradingEngine:
         self._symbol = settings.trading.symbol
         self._latest_analysis: MarketAnalysis | None = None
         self._latest_analysis_id: int | None = None
+        self._last_logged_limit_date: date | None = None
 
     def run_forever(self, *, max_iterations: int | None = None) -> None:
         """Continuously monitor XAUUSD and execute at most one opportunity per day.
@@ -88,7 +89,16 @@ class TradingEngine:
         tick, m5_candles, m15_candles = market_data
         trading_date = tick.time.date()
 
-        if self._opportunity_repo.has_opportunity_today(trading_date):
+        limit = self._settings.trading.max_opportunities_per_day
+        if self._opportunity_repo.has_opportunity_today(trading_date, limit=limit):
+            if self._last_logged_limit_date != trading_date:
+                logger.info(
+                    "Daily opportunity limit (%s) reached for trading_date=%s. "
+                    "The bot will remain idle until the next trading day.",
+                    limit,
+                    trading_date,
+                )
+                self._last_logged_limit_date = trading_date
             logger.debug("Opportunity already recorded for trading_date=%s; skipping", trading_date)
             return
         if has_unresolved_open_trades:
