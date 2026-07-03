@@ -1,0 +1,29 @@
+[trading]
+symbol = "XAUUSD"
+timeframes = ["M5", "M15"]
+risk_usd = 50.0
+reward_usd = 150.0
+lot_min = 0.05
+lot_max = 0.10
+preferred_lot_size = 0.05
+max_opportunities_per_day = 1
+deviation_points = 20
+magic_number = 234000
+poll_interval_seconds = 10.0
+
+[ai]
+model = "gpt-4o-mini"
+temperature = 0.2
+max_retries = 3
+timeout_seconds = 30
+m5_candle_count = 50
+m15_candle_count = 50
+
+[database]
+path = "data/trading.db"
+
+[logging]
+level = "INFO"
+dir = "logs"
+max_bytes = 10485760
+backup_count = 5

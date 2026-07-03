@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xauusd-bot"
+version = "0.1.0"
+description = "AI-powered XAUUSD trading automation for MT5"
+requires-python = ">=3.12"
+dependencies = [
+    "MetaTrader5>=5.0.45",
+    "numpy>=1.26",
+    "openai>=1.54",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "mypy>=1.9", "ruff>=0.4"]
+
+[project.scripts]
+xauusd-bot = "xauusd_bot.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
